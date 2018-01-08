@@ -10,7 +10,6 @@
 
 'use strict';
 const Alexa = require('alexa-sdk');
-const RequestClient = require('./RequestClient');
 
 //=========================================================================================================================================
 //TODO: The items below this comment need your attention.
@@ -45,10 +44,10 @@ const handlers = {
         this.emit('GetNewContestIntent');
     },
     'GetNewContestIntent': function () {
-    	console.log('GetNewContestIntent');
+        console.log('GetNewContestIntent');
 
-    	var errorMessage = "Unable to process the request, ", invalidRequest = false ;
-    	var speechOutput = GET_CONTEST_MESSAGE;var data , ans = "";
+        var errorMessage = "Unable to process the request, ", invalidRequest = false ;
+        var speechOutput = GET_CONTEST_MESSAGE;
         //slots
         var userPlatform = this.event.request.intent.slots.Platform.value;
         var userDate = this.event.request.intent.slots.Date.value;
@@ -58,35 +57,6 @@ const handlers = {
 
         console.log("Data given by the user : ", userPlatform, whenDate, userDate, whenTime, userTime);
 
-
-        const directiveServiceCall = callDirectiveService(this.event)
-                                    .catch((error) => {
-                                        console.log("Some error occured: " + error);
-                                    });
-
-        const requestClient = new RequestClient();
-        const getContestsCall = requestClient.getAllContests();
-        Promis.all([directiveServiceCall, getContestsCall]).then((values) => {
-        	const contests = values;
-        	if(events.length === 0) {
-	            this.response
-	                .speak("Connection error");
-	            this.emit(':responseReady');
-	            return;
-	        }
-	        console.log(contests);
-
-	        data.result.upcoming.forEach(function(entry){
-	            forPlatformdoThis(entry, userPlatform != null, userDate != null, userTime != null);
-	        });
-	        console.log(speechOutput);
-			emitResponse();
-
-
-
-	        this.response.speak(contests.toString());
-	        this.emit(':responseReady');
-        });
         
         function whenValue(when){
             switch(when){
@@ -98,8 +68,10 @@ const handlers = {
         }
         
         function updateAns(entry){
-            ans += entry.Name + " on " + entry.Platform + " starts at " + entry.StartTime + " and ends at " + entry.EndTime + "\n";
-            console.log("answer updated");
+            var ans = entry.Name + " on " + entry.Platform + " starts at " + entry.StartTime + " and ends at " + entry.EndTime + "\n";
+            console.log("ANS:", ans);
+            this.response.speak(ans);
+            this.emit(':responseReady');
         }
 
         function forTimedoThis(entry, time){
@@ -174,43 +146,77 @@ const handlers = {
         }
 
         function isPlatform(platform){
-        	switch(platform){
-        		case "CODEFORCES" : 
-        		case "CODECHEF" : 
-        		case "GOOGLE CODE JAM" : 
-        		case "HACKEREARTH": 
-        		case "HACKERRANK" : 
-        		case "TOP CODER" : return true; 
-        		default : return false;
-        	}
+            switch(platform){
+                case "CODEFORCES" : 
+                case "CODECHEF" : 
+                case "GOOGLE CODE JAM" : 
+                case "HACKEREARTH": 
+                case "HACKERRANK" : 
+                case "TOP CODER" : return true; 
+                default : return false;
+            }
         }
 
         function forPlatformdoThis(entry, platform, date, time){
             if(platform){
-            	if(isPlatform(userPlatform)){
-	                if (entry.Platform == userPlatform) {
-	                    forDatedoThis(entry, date, time);
-	                }
-	            }else{
-	            	invalidRequest = true;
-	            	errorMessage = "Sorry, We don't have access to this platform yet."
-	            }
+                if(isPlatform(userPlatform)){
+                    if (entry.Platform == userPlatform) {
+                        forDatedoThis(entry, date, time);
+                    }
+                }else{
+                    invalidRequest = true;
+                    errorMessage = "Sorry, We don't have access to this platform yet."
+                }
             } else{
                 forDatedoThis(entry, date, time);
             }
         }
 
-         function emitResponse(){
-        	if(invalidRequest){
-	        	speechOutput = errorMessage;
-	        }else{
-	        	speechOutput = GET_CONTEST_MESSAGE + ans;
-	        }
-	        console.log(speechOutput);
-	        this.response.cardRenderer(SKILL_NAME, speechOutput);
-	        this.response.speak(speechOutput);
-	        this.emit(':responseReady');
-	    }
+        var options = {
+            host: 'http://contesttrackerapi.herokuapp.com/',
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        };
+
+        const http = require('http');
+        http.get('http://contesttrackerapi.herokuapp.com/', (res) => {
+            const { statusCode } = res;
+            const contentType = res.headers['content-type'];
+
+            let error;
+            if (statusCode !== 200) {
+                error = new Error('Request Failed.\n' +
+                `Status Code: ${statusCode}`);
+            } else if (!/^application\/json/.test(contentType)) {
+                error = new Error('Invalid content-type.\n' +
+                `Expected application/json but received ${contentType}`);
+            }
+            if (error) {
+                console.error(error.message);
+                // consume response data to free up memory
+                return;
+            }
+
+            res.setEncoding('utf8');
+            let rawData = '';
+            res.on('data', (chunk) => { rawData += chunk; });
+            res.on('end', () => {
+                try {
+                    const parsedData = JSON.parse(rawData);
+                    console.log(parsedData);
+                    parsedData.result.upcoming.forEach(function(entry){
+                        forPlatformdoThis(entry, userPlatform != null, userDate != null, userTime != null);
+                    })
+                } catch (e) {
+                    console.error(e.message);
+                }
+            });
+            }).on('error', (e) => {
+            console.error(`Got error: ${e.message}`);
+        });
+
     },
     'AMAZON.HelpIntent': function () {
         const speechOutput = HELP_MESSAGE;
@@ -227,14 +233,4 @@ const handlers = {
         this.response.speak(STOP_MESSAGE);
         this.emit(':responseReady');
     },
-};
-
-function callDirectiveService(event) {
-    // Call Alexa Directive Service.
-    const ds = new Alexa.services.DirectiveService();
-    const requestId = event.request.requestId;
-    const endpoint = event.context.System.apiEndpoint;
-	const token = event.context.System.apiAccessToken;
-	const directive = new Alexa.directives.VoicePlayerSpeakDirective(requestId, "Please wait");
-    return ds.enqueue(directive, endpoint, token);
 };
