@@ -22,9 +22,10 @@ const APP_ID = 'amzn1.ask.skill.fe810233-189e-4721-a3bf-ad40ca9c9aa7';
 
 const SKILL_NAME = 'Contest Tracker';
 const GET_CONTEST_MESSAGE = 'Here are some contests: ';
-const HELP_REPROMPT = 'You can say tell me about some upcoming contests, or, you can say exit.';
+const HELP_REPROMPT = 'You can say Are there any upcoming contests? or, you can say exit.';
 const HELP_MESSAGE = 'What can I help you with?';
 const STOP_MESSAGE = 'Goodbye! and happy coding';
+const ERROR = "Some error occurred";
 
 
 //=========================================================================================================================================
@@ -45,6 +46,7 @@ var whenTime = null;
 var found = 0;
 var ans = "", k = 0;
 var eMessage = "Not updated", invalidRequest = false;
+var platformSet = new Set();
 
 //=========================================================================================================================================
 //Editing anything below this line might break your skill.
@@ -62,17 +64,17 @@ const handlers = {
         const randomWel = welcomeArr[Index];
 
         this.emit(':ask',randomWel + HELP_MESSAGE);
-        //this.emit('GetNewContestIntent');
     },
     'GetNewContestIntent': function () {
         console.log('GetNewContestIntent');
-        ans = ""; k = 0; eMessage = "Not updated"; invalidRequest = false;
+        ans = ""; k = 0; eMessage = "Not updated"; invalidRequest = false; platformSet.clear();
+        platformSet.add('OTHER');
 
         var appId = this.event.session.application.applicationId;
         if (appId != APP_ID){
           var speechOutput = "Application ID didnot match.";
           this.emit(':tell', speechOutput);
-          return http.console.error(400); //TODO: search the correct syntax
+          return http.console.error(400);
         }
 
 
@@ -96,13 +98,7 @@ const handlers = {
             "<break time=\"200ms\"/> google code jam, <break time=\"200ms\"/> hackerrank and <break time=\"200ms\"/> hackerearth.";
             var reprompt = "Do you wish to continue?";
 
-            this.emit(':tell', removeSSML(prompt));
-            this.emit(':ask', removeSSML(reprompt));
-            if(true){               // TODO: take response from user and do the necessities
-              //TODO: return new userPlatform
-            }else{
-              //TODO: exit skill
-            }
+            this.emit(':ask', reprompt, prompt);
           }
         }
 
@@ -149,41 +145,38 @@ const handlers = {
 
                     if(invalidRequest == true){
                         console.log("Error:", eMessage);
-                        this.response.speak(eMessage);
+                        this.emit(':ask', eMessage);
                         this.emit(':responseReady');
-                    }else{
-                        //console.log("Found", k.toString(), "results");
+                    }else{//Final Result of Skill
                         var speechOutput;
                         if (k == 0) {
                             console.log("Ans:", ans);
-                            speechOutput = "Sorry no results found for your search. Try generalising your request or may be ask for some other platform";
+                            speechOutput = "Sorry no results found for your search.\nTry generalising your request or may be ask for some other platform";
+                            this.emit(':tellWithCard', speechOutput, SKILL_NAME, removeSSML(speechOutput));
+                            this.emit(':responseReady');
                         }else{
-                            speechOutput = "Found " + k.toString() + " result" + ((k > 1)?"s":"") + ". <break time=\"500ms\"/>";
-                            speechOutput += ans;
+                            console.log("Set", platformSet);
+                            speechOutput = ans;
+                            this.emit(':tellWithCard', GET_CONTEST_MESSAGE + speechOutput, SKILL_NAME, removeSSML(speechOutput));
+                            this.emit(':responseReady');
                         }
-                        //console.log(removeSSML(speechOutput));
-                        this.emit(':tellWithCard', speechOutput, SKILL_NAME, removeSSML(speechOutput));
-                        this.emit(':responseReady');
-                        /*this.response.speak(speechOutput);
-                        this.emit(':responseReady');*/
                     }
                 } catch (e) {
                     console.error(e.message);
-                    this.response.speak("Sorry, something went wrong. Please try again");
+                    this.emit(':tellWithCard', "Sorry, something went wrong.\nPlease try again", SKILL_NAME, removeSSML(ERROR + `\nGot error: ${e.message}`));
                     this.emit(':responseReady');
                 }
             });
             }).on('error', (e) => {
             console.error(`Got error: ${e.message}`);
-            this.response.speak("Sorry, something went wrong. Please try again");
+            this.emit(':tellWithCard', "Sorry, something went wrong.\nPlease try again", SKILL_NAME, removeSSML(ERROR + `\nGot error: ${e.message}`));
             this.emit(':responseReady');
         });
     },
     'AMAZON.HelpIntent': function () {
         const speechOutput = HELP_MESSAGE;
         const reprompt = HELP_REPROMPT;
-
-        this.response.speak(speechOutput).listen(reprompt);
+        this.response.speak(reprompt).listen(speechOutput);
         this.emit(':responseReady');
     },
     'AMAZON.CancelIntent': function () {
@@ -196,8 +189,6 @@ const handlers = {
     },
     'SessionEndedRequest': function () {
         this.emit(':tell', STOP_MESSAGE);
-        // this.response.speak(STOP_MESSAGE);
-        this.emit(':responseReady');
     }
 };
 //yyyy-mm-dd
@@ -245,18 +236,18 @@ function whenValue(when){
 }
 
 function updateAns(entry){
-    var value = entry.Name + " on " + entry.Platform + " starts at " + entry.StartTime + " for the duration of " + entry.Duration + " . \n <break time=\"500ms\"/>";
+    if (userPlatform != null && k >= 2) {
+      return;
+    }
+    var value = entry.Name + " on " + entry.Platform + " starts at " + entry.StartTime
+     + " for the duration of " + entry.Duration + " . \n <break time=\"500ms\"/>";
     ans += value;
     k++;
-    console.log("User Input: ", userPlatform, whenDate, userDate, whenTime, userTime );
-    console.log("Extracted data: ", entry.Platform, entry.StartTime, entry.Duration);
 }
 
 function forTimedoThis(entry, time){
-    //console.log("forTimedoThis:", time);
     if(time){
         var fechedTime = getTime(entry.StartTime);
-        //console.log(fechedTime, userTime);
         switch(whenValue(whenTime)){
             case 1:
                 if(fechedTime == userTime){
@@ -274,13 +265,10 @@ function forTimedoThis(entry, time){
                 }
                 break;
             default:
-                // TODO: check this block
                 //whenTime not recognised
                 console.log("Error: whenTime not recognised");
                 eMessage = "You need to specify before, on or after of the time, " + userTime;
                 invalidRequest = true;
-                /*this.response.speak("You need to specify before, on or after of the time,", userTime);
-                this.emit(':responseReady');*/
         }
     }else{
         updateAns(entry);
@@ -293,9 +281,6 @@ function forDatedoThis(entry, date, time){
     console.log("forDatedoThis:", date, time);
     if(date){
         var fechedDate = getDate(entry.StartTime);
-        // var dt = new parser(userDate);
-        // var date = dt.startDate.toLocaleDateString('en-US');
-        console.log("Fetched:", fechedDate, "UserInput:", userDate);
         switch(whenValue(whenDate)){
             case 1: // on
                 {
@@ -322,13 +307,9 @@ function forDatedoThis(entry, date, time){
                 }
                 break;
             default:
-                //TODO: check this block
-                //whenDate not recognised
                 console.log("Error: whenDate not recognised");
                 eMessage = "You need to specify before, on or after of the date," + userDate;
                 invalidRequest = true;
-                /*this.response.speak("You need to specify before, on or after of the date,", userDate);
-                this.emit(':responseReady');*/
         }
     }else{
         forTimedoThis(entry, time);
@@ -337,12 +318,14 @@ function forDatedoThis(entry, date, time){
 }
 
 function forPlatformdoThis(entry, platform, date, time){
-    //console.log("forPlatformdoThis:", platform, date, time);
     if(platform){
         if (entry.Platform.toString().trim() == userPlatform) {
             forDatedoThis(entry, date, time);
         }
     } else{
-        forDatedoThis(entry, date, time);
+        if (!platformSet.has(entry.Platform)) {
+          forDatedoThis(entry, date, time);
+          platformSet.add(entry.Platform);
+        }
     }
 }
