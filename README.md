@@ -60,5 +60,7 @@ This will launch the skill.
  5. Hackerearth
  6. Google Code Jam
  
+ -If user specifies a platform, the skill will tell about the latest two contests to held on that platform. And if no platform is specified, then it will tell about one contest to be held on each of the supported platforms.
+ 
  - User may get the details of the contests held before, on or after a particular date/time. The skill will get him/her the details as requested (provided there are any results).
  
